@@ -1,4 +1,36 @@
-export type BenchmarkAggregation = 'mean_task' | 'mean_task_type' | 'task_types' | 'public_private';
+export type BenchmarkAggregation =
+	| 'mean_task'
+	| 'mean_task_type'
+	| 'task_types'
+	| 'public_private'
+	| 'mean_subset'
+	| 'custom_groups';
+
+// One labeled group within a custom-grouping dimension. Mirrors the backend's
+// CustomGroup — `description` is optional prose surfaced as the column
+// tooltip; falls back to a generic sentence when absent.
+export interface CustomGroup {
+	label: string;
+	description?: string | null;
+	// Whole-task membership only — lets the frontend recompute
+	// scoresByCustomGroup under the sidebar filters, same as scoresByTaskType.
+	// Empty when the group is entirely subset-/split-scoped (see tasksComplete).
+	tasks: string[];
+	// False when the group has a subset-/split-scoped entry too, so `tasks`
+	// doesn't fully represent its membership — filters.svelte.ts must freeze
+	// (not recompute or drop) its score. Defaults to true when absent.
+	tasksComplete?: boolean;
+}
+
+// A named custom dimension a benchmark declares (e.g. "Memory Type" ->
+// Episodic/Dialogue/Semantic/Procedural), driving one super-header + one
+// mean column per group on SummaryTable. Mirrors the backend's
+// CustomGrouping. Appears on `Benchmark` (full static declaration) and on
+// `BenchmarkSummary` (data-driven — only groups with computed scores).
+export interface CustomGrouping {
+	name: string;
+	groups: CustomGroup[];
+}
 
 export interface Benchmark {
 	name: string;
@@ -25,6 +57,10 @@ export interface Benchmark {
 	// `Benchmark.aggregations` upstream — frontend uses it to hide irrelevant
 	// columns (ViDoRe has no per-type breakdown; RTEB has only Mean (Task)).
 	aggregations: BenchmarkAggregation[];
+	// Full static declaration of every custom-grouping dimension this
+	// benchmark defines (with descriptions). Optional — absent on an older
+	// API response or a benchmark with no custom groupings.
+	customGroupings?: CustomGrouping[];
 	// Whether the Zero-shot column is meaningful on this benchmark. Off for
 	// ViDoRe / RTEB where task names aren't tracked in model training-data
 	// annotations so every row would otherwise render as a misleading 100%.
@@ -183,6 +219,16 @@ export interface SummaryRow {
 	// every existing per-task UI; the language filter overrides via
 	// the lazy /per-task endpoint when it lands.
 	scoresByTask: Record<string, number>;
+	// dimension name -> group label -> score, for benchmarks that declare
+	// custom groupings. The *language* filter recomputes this server-side
+	// (see aggregators.py's _recompute_lenient_custom_groups) same as
+	// scoresByTaskType/meanTask/meanTaskType. The client-side task-type /
+	// domain / modality sidebar filters (filters.svelte.ts, no server
+	// round-trip) do NOT recompute it — the API never sends per-task group
+	// membership, only the aggregated group scores, so there's nothing to
+	// re-bucket against a narrowed task set on the client; it stays frozen
+	// at the values for the full (or language-filtered) task set.
+	scoresByCustomGroup?: Record<string, Record<string, number>>;
 	// Tasks (within this benchmark) the model declares in its training
 	// datasets — used by PerTaskTab to surface a ⚠️ next to scores that
 	// the model isn't zero-shot on.
@@ -204,6 +250,11 @@ export interface BenchmarkSummary {
 	// Mirrors the Benchmark.aggregations declaration so SummaryTable knows
 	// which columns to render without inspecting the score data itself.
 	aggregations: BenchmarkAggregation[];
+	// Data-driven view of the benchmark's custom-grouping dimensions — only
+	// groups that actually have computed scores (mirrors `taskTypes`'
+	// relationship to the per-task-type summary columns). Optional — absent
+	// on an older API response.
+	customGroupings?: CustomGrouping[];
 	// Mirrors `Benchmark.showZeroShot` — SummaryTable hides the Zero-shot
 	// column when False (ViDoRe / RTEB, where the metric is uniformly 100%).
 	showZeroShot?: boolean;

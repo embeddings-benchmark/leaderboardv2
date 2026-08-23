@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { BenchmarkSummary, ModelMeta, SummaryRow, TaskMeta } from '$lib/types';
+import type { BenchmarkSummary, CustomGrouping, ModelMeta, SummaryRow, TaskMeta } from '$lib/types';
 import { applyFilters, filters } from './filters.svelte';
 
 // ---------------------------------------------------------------------------
@@ -39,20 +39,60 @@ function makeTask(name: string, type: string, overrides: Partial<TaskMeta> = {})
 	};
 }
 
+// Two-group "Dim" dimension used by the custom-group narrowing tests below —
+// G1 covers the two Retrieval tasks, G2 the one Classification task, so a
+// task-type filter cleanly drops G2 (all of its tasks excluded) while
+// leaving G1 untouched, and the "tasks" facet can partially narrow G1.
+const CUSTOM_GROUPING_FIXTURE: CustomGrouping[] = [
+	{
+		name: 'Dim',
+		groups: [
+			{ label: 'G1', tasks: ['T1', 'T2'], description: null },
+			{ label: 'G2', tasks: ['T3'], description: null }
+		]
+	}
+];
+
+function meanOf(m: Record<string, number>): number | null {
+	const xs = Object.values(m);
+	return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+}
+
+function customGroupMeans(
+	scoresByTask: Record<string, number>,
+	groupings: CustomGrouping[]
+): Record<string, Record<string, number>> {
+	const out: Record<string, Record<string, number>> = {};
+	for (const dim of groupings) {
+		const dimOut: Record<string, number> = {};
+		for (const g of dim.groups) {
+			const picked: Record<string, number> = {};
+			for (const t of g.tasks) {
+				const v = scoresByTask[t];
+				if (v !== undefined) picked[t] = v;
+			}
+			const mean = meanOf(picked);
+			if (mean !== null) dimOut[g.label] = mean;
+		}
+		out[dim.name] = dimOut;
+	}
+	return out;
+}
+
 function makeRow(
 	rank: number,
 	model: ModelMeta,
 	scoresByTask: Record<string, number>,
-	scoresByTaskType: Record<string, number>
+	scoresByTaskType: Record<string, number>,
+	scoresByCustomGroup: Record<string, Record<string, number>> = customGroupMeans(
+		scoresByTask,
+		CUSTOM_GROUPING_FIXTURE
+	)
 ): SummaryRow {
 	// Derive the means from the score maps so the fixture matches what the
 	// API would emit — `applyFilters` under "no narrowing" preserves
 	// `row.meanTask` rather than recomputing, so a `null` fixture would
 	// look like a regression on the happy-path assertions.
-	const meanOf = (m: Record<string, number>): number | null => {
-		const xs = Object.values(m);
-		return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
-	};
 	return {
 		rank,
 		model,
@@ -64,7 +104,8 @@ function makeRow(
 		meanTask: meanOf(scoresByTask),
 		meanTaskType: meanOf(scoresByTaskType),
 		scoresByTask,
-		scoresByTaskType
+		scoresByTaskType,
+		scoresByCustomGroup
 	};
 }
 
@@ -98,7 +139,8 @@ function fixtureSummary(): BenchmarkSummary {
 		tasks,
 		tasksMeta,
 		rows,
-		aggregations: ['mean_task', 'mean_task_type']
+		aggregations: ['mean_task', 'mean_task_type', 'custom_groups'],
+		customGroupings: CUSTOM_GROUPING_FIXTURE
 	};
 }
 
@@ -162,6 +204,140 @@ describe('applyFilters: task-set narrowing', () => {
 		filters.setAll('languages', ['eng-Latn'], true);
 		const out = applyFilters(fixtureSummary());
 		expect(out.tasks).toEqual(['T1', 'T2', 'T3']);
+	});
+});
+
+describe('applyFilters: custom-group narrowing', () => {
+	it('passes scoresByCustomGroup and customGroupings through unchanged when nothing is filtered', () => {
+		const out = applyFilters(fixtureSummary());
+		expect(out.customGroupings).toEqual(CUSTOM_GROUPING_FIXTURE);
+		const a = out.rows.find((r) => r.model.name === 'org/A')!;
+		// G1 = mean(T1, T2) = (0.9 + 0.5) / 2 = 0.7; G2 = T3 = 0.6.
+		expect(a.scoresByCustomGroup).toEqual({ Dim: { G1: 0.7, G2: 0.6 } });
+	});
+
+	it('drops a group from customGroupings once every one of its tasks is filtered out', () => {
+		filters.setAll('taskTypes', ['Retrieval'], true); // drops T3 (Classification) → G2 empties
+		const out = applyFilters(fixtureSummary());
+		expect(out.customGroupings).toEqual([
+			{ name: 'Dim', groups: [{ label: 'G1', tasks: ['T1', 'T2'], description: null }] }
+		]);
+		const a = out.rows.find((r) => r.model.name === 'org/A')!;
+		expect(a.scoresByCustomGroup!.Dim.G2).toBeUndefined();
+		// G1's own tasks (T1, T2) are both still visible, so it recomputes unchanged.
+		expect(a.scoresByCustomGroup!.Dim.G1).toBeCloseTo(0.7, 5);
+	});
+
+	it('the "tasks" picker narrows a group mean to just the picked tasks within it', () => {
+		// Keep T1 and T3 via the individual task picker, drop T2 — same
+		// "total = visible tasks in this bucket" semantics scoresByTaskType
+		// already uses (its typeTasks.length is also visible-only), so G1's
+		// mean narrows from mean(T1, T2) to just T1; G2 (only ever T3) is
+		// untouched.
+		filters.setAll('tasks', ['T1', 'T3'], true);
+		const out = applyFilters(fixtureSummary());
+		expect(out.customGroupings![0].groups.map((g) => g.label)).toEqual(['G1', 'G2']);
+		const a = out.rows.find((r) => r.model.name === 'org/A')!;
+		// Was 0.7 (mean of T1=0.9, T2=0.5) under no narrowing; now just T1.
+		expect(a.scoresByCustomGroup!.Dim.G1).toBeCloseTo(0.9, 5);
+		expect(a.scoresByCustomGroup!.Dim.G2).toBeCloseTo(0.6, 5);
+	});
+
+	it('nulls a group when the model is missing a score for one of its visible tasks', () => {
+		// org/D has no T2 score at all (simulates a model that didn't run
+		// that task). Narrow to Retrieval (T1, T2 visible, same as the
+		// "drops an empty group" test above) — G1 needs both, so org/D
+		// (T1 only) goes null under strict (no language filter) semantics,
+		// while org/A (has both) still gets a value.
+		const summary = fixtureSummary();
+		const d = summary.rows.find((r) => r.model.name === 'org/D')!;
+		delete d.scoresByTask.T2;
+		d.scoresByCustomGroup = customGroupMeans(d.scoresByTask, CUSTOM_GROUPING_FIXTURE);
+
+		filters.setAll('taskTypes', ['Retrieval'], true);
+		const out = applyFilters(summary);
+		const outA = out.rows.find((r) => r.model.name === 'org/A')!;
+		const outD = out.rows.find((r) => r.model.name === 'org/D')!;
+		expect(outA.scoresByCustomGroup!.Dim.G1).toBeCloseTo(0.7, 5);
+		expect(outD.scoresByCustomGroup?.Dim?.G1).toBeUndefined();
+	});
+
+	it('does NOT drop custom groups by language filter — that is handled server-side', () => {
+		filters.setAll('languages', ['eng-Latn'], true);
+		const out = applyFilters(fixtureSummary());
+		expect(out.customGroupings).toEqual(CUSTOM_GROUPING_FIXTURE);
+	});
+});
+
+describe('applyFilters: tasksComplete=false (scoped) groups are frozen, not recomputed or dropped', () => {
+	// A scoped group's declared tasks is empty by construction (mirrors
+	// CustomGroupSchema.tasksComplete), so it never gets a bucket and would
+	// otherwise read as "zero visible tasks" and get dropped.
+	const SCOPED_GROUPING: CustomGrouping = {
+		name: 'ScopedDim',
+		groups: [{ label: 'GScoped', tasks: [], description: null, tasksComplete: false }]
+	};
+	const MIXED_GROUPING: CustomGrouping = {
+		name: 'MixedDim',
+		groups: [
+			{ label: 'MComplete', tasks: ['T1'], description: null },
+			{ label: 'MScoped', tasks: [], description: null, tasksComplete: false }
+		]
+	};
+
+	function fixtureSummaryWithScopedGroups(): BenchmarkSummary {
+		const summary = fixtureSummary();
+		return {
+			...summary,
+			customGroupings: [...summary.customGroupings!, SCOPED_GROUPING, MIXED_GROUPING],
+			rows: summary.rows.map((r) => ({
+				...r,
+				scoresByCustomGroup: {
+					...r.scoresByCustomGroup,
+					// Distinct per-row sentinel so a wrong-row bug wouldn't slip
+					// past a coincidental match.
+					ScopedDim: { GScoped: r.rank * 0.111 },
+					MixedDim: { MComplete: r.rank * 0.222, MScoped: r.rank * 0.333 }
+				}
+			}))
+		};
+	}
+
+	it('stays present in customGroupings even when a filter would otherwise empty its bucket', () => {
+		filters.setAll('taskTypes', ['Retrieval'], true); // drops T3 -> Dim's G2 empties too
+		const out = applyFilters(fixtureSummaryWithScopedGroups());
+		const dimNames = out.customGroupings!.map((d) => d.name);
+		expect(dimNames).toContain('ScopedDim');
+		const scopedDim = out.customGroupings!.find((d) => d.name === 'ScopedDim')!;
+		expect(scopedDim.groups.map((g) => g.label)).toEqual(['GScoped']);
+		// Dim's G2 (a genuinely empty, non-scoped group) still drops as before.
+		const dim = out.customGroupings!.find((d) => d.name === 'Dim')!;
+		expect(dim.groups.map((g) => g.label)).toEqual(['G1']);
+	});
+
+	it("freezes a scoped group's score at the server value instead of recomputing it", () => {
+		const unfiltered = fixtureSummaryWithScopedGroups();
+		const a = unfiltered.rows.find((r) => r.model.name === 'org/A')!;
+		const frozenValue = a.scoresByCustomGroup!.ScopedDim.GScoped;
+
+		filters.setAll('taskTypes', ['Retrieval'], true);
+		const out = applyFilters(fixtureSummaryWithScopedGroups());
+		const outA = out.rows.find((r) => r.model.name === 'org/A')!;
+		expect(outA.scoresByCustomGroup!.ScopedDim.GScoped).toBe(frozenValue);
+	});
+
+	it('recomputes a complete group but freezes an incomplete group within the same dimension', () => {
+		const unfiltered = fixtureSummaryWithScopedGroups();
+		const a = unfiltered.rows.find((r) => r.model.name === 'org/A')!;
+		const frozenValue = a.scoresByCustomGroup!.MixedDim.MScoped;
+
+		filters.setAll('taskTypes', ['Retrieval'], true); // T1, T2 visible
+		const out = applyFilters(fixtureSummaryWithScopedGroups());
+		const outA = out.rows.find((r) => r.model.name === 'org/A')!;
+		// MComplete's declared tasks = ['T1'], unaffected by the T3 drop ->
+		// recomputes to org/A's T1 score (0.9), not frozen.
+		expect(outA.scoresByCustomGroup!.MixedDim.MComplete).toBeCloseTo(0.9, 5);
+		expect(outA.scoresByCustomGroup!.MixedDim.MScoped).toBe(frozenValue);
 	});
 });
 

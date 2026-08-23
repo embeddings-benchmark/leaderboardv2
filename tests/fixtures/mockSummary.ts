@@ -1,5 +1,6 @@
 import type {
 	BenchmarkSummary,
+	CustomGrouping,
 	ModelMeta,
 	ModelType,
 	SummaryRow,
@@ -289,7 +290,8 @@ function buildRow(
 	taskTypes: string[],
 	tasks: string[],
 	benchmarkSeed: number,
-	idx: number
+	idx: number,
+	customGroupings: CustomGrouping[] = []
 ): SummaryRow {
 	const openness = mockOpenness(model, idx);
 	const meta: ModelMeta = {
@@ -332,6 +334,21 @@ function buildRow(
 		scoresByTask[tasks[i]] = clamp(base + noise, 0, 0.99);
 	}
 
+	// One jittered mean per (dimension, group) pair, anchored to meanTask so
+	// values stay in a plausible range — same policy as scoresByTaskType.
+	let scoresByCustomGroup: Record<string, Record<string, number>> | undefined;
+	if (customGroupings.length > 0) {
+		scoresByCustomGroup = {};
+		for (const dim of customGroupings) {
+			const byLabel: Record<string, number> = {};
+			for (let i = 0; i < dim.groups.length; i++) {
+				const noise = (jitter(benchmarkSeed + idx * 53, i + 17) - 0.5) * 0.15;
+				byLabel[dim.groups[i].label] = clamp(meanTask + noise, 0, 0.99);
+			}
+			scoresByCustomGroup[dim.name] = byLabel;
+		}
+	}
+
 	return {
 		rank: 0,
 		model: meta,
@@ -343,7 +360,8 @@ function buildRow(
 		meanTask,
 		meanTaskType,
 		scoresByTaskType,
-		scoresByTask
+		scoresByTask,
+		scoresByCustomGroup
 	};
 }
 
@@ -513,8 +531,9 @@ export function buildMockSummary(benchmarkName: string): BenchmarkSummary {
 	const seed = hashSeed(benchmarkName);
 
 	const tasksMeta = buildTasksMeta(tasks, taskTypes, languages, domains, modalities);
+	const customGroupings = benchmark?.customGroupings ?? [];
 
-	const rows = MOCK_MODELS.map((m, i) => buildRow(m, taskTypes, tasks, seed, i));
+	const rows = MOCK_MODELS.map((m, i) => buildRow(m, taskTypes, tasks, seed, i, customGroupings));
 	rows.sort((a, b) => (b.meanTask ?? -Infinity) - (a.meanTask ?? -Infinity));
 	rows.forEach((r, i) => (r.rank = i + 1));
 
@@ -524,6 +543,7 @@ export function buildMockSummary(benchmarkName: string): BenchmarkSummary {
 		tasks,
 		tasksMeta,
 		rows,
-		aggregations: ['mean_task', 'mean_task_type', 'task_types']
+		aggregations: benchmark?.aggregations ?? ['mean_task', 'mean_task_type', 'task_types'],
+		customGroupings
 	};
 }

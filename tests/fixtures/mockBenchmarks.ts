@@ -191,6 +191,68 @@ const COIR = makeBenchmark({ name: 'CoIR' });
 const RTEB_HEALTH = makeBenchmark({ name: 'RTEB(Health, beta)' });
 const FOLLOW_IR = makeBenchmark({ name: 'FollowIR' });
 const LONG_EMBED = makeBenchmark({ name: 'LongEmbed' });
+// Custom-groups fixture — mirrors the real backend's LMEB "Memory Type"
+// dimension so mock-API-driven tests (unit + Playwright) can exercise the
+// SummaryTable super-header / per-group columns without a live mteb API.
+const LMEB = makeBenchmark({
+	name: 'LMEB',
+	displayName: 'Long-Horizon Memory',
+	description:
+		'Long-horizon memory retrieval quality across episodic, dialogue, semantic, and procedural tasks.',
+	taskTypes: ['Retrieval'],
+	tasks: Array.from({ length: 22 }, (_, i) => `LmebTask_${i + 1}`),
+	aggregations: ['mean_task', 'mean_task_type', 'task_types', 'custom_groups'],
+	customGroupings: [
+		{
+			name: 'Memory Type',
+			groups: [
+				{
+					label: 'Episodic',
+					description: 'Recall past events grounded in temporal cues.',
+					tasks: ['LmebTask_1', 'LmebTask_2']
+				},
+				{
+					label: 'Dialogue',
+					description: 'Maintain context across multi-turn interactions.',
+					tasks: [
+						'LmebTask_3',
+						'LmebTask_4',
+						'LmebTask_5',
+						'LmebTask_6',
+						'LmebTask_7',
+						'LmebTask_8'
+					]
+				},
+				{
+					label: 'Semantic',
+					description: null,
+					tasks: [
+						'LmebTask_9',
+						'LmebTask_10',
+						'LmebTask_11',
+						'LmebTask_12',
+						'LmebTask_13',
+						'LmebTask_14',
+						'LmebTask_15',
+						'LmebTask_16'
+					]
+				},
+				{
+					label: 'Procedural',
+					description: 'Recall learned skills and structured procedures.',
+					tasks: [
+						'LmebTask_17',
+						'LmebTask_18',
+						'LmebTask_19',
+						'LmebTask_20',
+						'LmebTask_21',
+						'LmebTask_22'
+					]
+				}
+			]
+		}
+	]
+});
 const BRIGHT = makeBenchmark({ name: 'BRIGHT' });
 
 const BEIR = makeBenchmark({ name: 'BEIR' });
@@ -230,6 +292,7 @@ export const BENCHMARK_INDEX: Record<string, Benchmark> = Object.fromEntries(
 		RTEB_HEALTH,
 		FOLLOW_IR,
 		LONG_EMBED,
+		LMEB,
 		BRIGHT,
 		BEIR,
 		NANO_BEIR
@@ -281,7 +344,17 @@ export const BENCHMARK_MENU: MenuEntry[] = [
 			},
 			{
 				name: 'Domain-Specific',
-				children: [RTEB_FIN, RTEB_LAW, RTEB_CODE, COIR, RTEB_HEALTH, FOLLOW_IR, LONG_EMBED, BRIGHT]
+				children: [
+					RTEB_FIN,
+					RTEB_LAW,
+					RTEB_CODE,
+					COIR,
+					RTEB_HEALTH,
+					FOLLOW_IR,
+					LONG_EMBED,
+					LMEB,
+					BRIGHT
+				]
 			},
 			{
 				name: 'Language-specific',
