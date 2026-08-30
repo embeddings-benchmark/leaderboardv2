@@ -1,6 +1,6 @@
 <script lang="ts" module>
 	import type { SummaryRow } from '$lib/types';
-	import { fmtZeroShot, fmtParamsCompact } from '$lib/format';
+	import { fmtZeroShot, fmtParamsCompact, missingModalities, sortModalities } from '$lib/format';
 
 	function fmtInt(n: number): string {
 		if (!n) return '—';
@@ -27,16 +27,32 @@
 		_rowsCache.set(row, out);
 		return out;
 	}
+
+	// Modalities the model can encode, sorted for consistent display.
+	// Defaults to `["text"]` — mirrors `ModelMeta.modalities`'s own
+	// documented default (see types.ts) so an omitted field still reads as
+	// "text-only" rather than an empty row.
+	const _modalitiesCache = new WeakMap<SummaryRow, string[]>();
+	export function modalitiesForModel(row: SummaryRow): string[] {
+		const cached = _modalitiesCache.get(row);
+		if (cached) return cached;
+		const out = sortModalities(row.model.modalities?.length ? row.model.modalities : ['text']);
+		_modalitiesCache.set(row, out);
+		return out;
+	}
 </script>
 
 <script lang="ts">
 	import HoverPortal from './HoverPortal.svelte';
+	import ModalityIcon from './ModalityIcon.svelte';
 
 	type TipState = {
 		visible: boolean;
 		title: string;
 		modelType: string;
 		rows: { k: string; v: string }[];
+		modalities: string[];
+		missingModalities: string[];
 		x: number;
 		y: number;
 	};
@@ -45,17 +61,26 @@
 		title: '',
 		modelType: '',
 		rows: [],
+		modalities: [],
+		missingModalities: [],
 		x: 0,
 		y: 0
 	});
 
-	export function showFor(target: HTMLElement, row: SummaryRow) {
+	// `requiredModalities` — the benchmark/task's modalities, when the
+	// caller has one (see `SummaryTable` etc.'s `benchmarkModalities`
+	// prop) — drives the mismatch note below the Modalities row. Omit for
+	// contexts with no single well-defined modality set (e.g. the model
+	// catalogue).
+	export function showFor(target: HTMLElement, row: SummaryRow, requiredModalities?: string[]) {
 		const r = target.getBoundingClientRect();
 		tip = {
 			visible: true,
 			title: `${row.model.org} / ${row.model.displayName}`,
 			modelType: row.model.modelType,
 			rows: rowsForModel(row),
+			modalities: modalitiesForModel(row),
+			missingModalities: missingModalities(row.model.modalities, requiredModalities),
 			x: r.left + r.width / 2,
 			y: r.bottom
 		};
@@ -73,7 +98,24 @@
 				<dd class:type-value={r.k === 'Type'}>{r.v}</dd>
 			</div>
 		{/each}
+		<div>
+			<dt>Modalities</dt>
+			<dd class="modalities-value">
+				{#each tip.modalities as mod (mod)}
+					<span class="badge modality-tint" data-modality={mod}>
+						<ModalityIcon modality={mod} size={11} />
+						<span>{mod}</span>
+					</span>
+				{/each}
+			</dd>
+		</div>
 	</dl>
+	{#if tip.missingModalities.length > 0}
+		<p class="modality-note">
+			⚠ Doesn't support {tip.missingModalities.join(', ')} — this benchmark's corpus includes it, so the
+			score may not reflect genuine {tip.missingModalities.join('/')} understanding.
+		</p>
+	{/if}
 </HoverPortal>
 
 <style>
@@ -107,5 +149,13 @@
 	.type-value {
 		color: var(--type-tint, inherit);
 		font-weight: 700;
+	}
+	.modality-note {
+		margin: 8px 0 0;
+		padding-top: 8px;
+		border-top: 1px solid var(--border);
+		font-size: 11px;
+		line-height: 1.4;
+		color: var(--tint-amber-fg);
 	}
 </style>

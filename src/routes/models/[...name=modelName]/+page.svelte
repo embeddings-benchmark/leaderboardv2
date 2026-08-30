@@ -229,6 +229,23 @@
 						<dd>{model.license}</dd>
 					</div>
 				{/if}
+				{#if model.openness && Object.keys(model.openness).length > 0}
+					<div class="row">
+						<dt>Openness</dt>
+						<dd>
+							<span class="chips">
+								{#each Object.entries(model.openness) as [criterion, met] (criterion)}
+									<span class="badge" class:open={met} class:soft={!met}>{criterion}</span>
+								{/each}
+							</span>
+							{#if model.opennessScore != null}
+								<p class="openness-score">
+									{model.opennessScore}/{Object.keys(model.openness).length} criteria met
+								</p>
+							{/if}
+						</dd>
+					</div>
+				{/if}
 				{#if model.publicTrainingCode}
 					<div class="row">
 						<dt>Training code</dt>
@@ -538,6 +555,11 @@
 	.spec-list .model-link {
 		font-family: var(--font-mono);
 		font-size: 12px;
+	}
+	.openness-score {
+		margin: 6px 0 0;
+		font-size: 11.5px;
+		color: var(--text-subtle);
 	}
 	@media (max-width: 720px) {
 		.spec-list {

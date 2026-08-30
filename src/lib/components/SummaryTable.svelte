@@ -129,7 +129,8 @@
 		heat,
 		humanizeType,
 		maxOf,
-		minOf
+		minOf,
+		rowId
 	} from '$lib/format';
 	import { stickyHead } from '$lib/actions/sticky-head';
 	import { stickyHScroll } from '$lib/actions/sticky-hscroll';
@@ -155,8 +156,12 @@
 		// (e.g. /benchmark/[name] only mounts the active tab when prerender
 		// is off) keep the live-pin behaviour.
 		active?: boolean;
+		// Benchmark's modalities — forwarded to `ModelCellName` so it can flag
+		// models that can't encode one of them (e.g. a text-only model on a
+		// benchmark whose corpus is image+text).
+		benchmarkModalities?: string[];
 	}
-	let { summary, active = true }: Props = $props();
+	let { summary, active = true, benchmarkModalities = undefined }: Props = $props();
 
 	type SortKey =
 		| 'rank'
@@ -242,9 +247,11 @@
 		}
 		// Inactive panes don't subscribe to `pinnedModels` — pin clicks
 		// elsewhere don't invalidate this derived. Reactivates on tab switch
-		// (the `active` prop change re-fires the derived).
+		// (the `active` prop change re-fires the derived). Pin keys are
+		// per-row identities (see `rowId`) so pinning a base model and a
+		// variant of the same model independently surfaces both.
 		if (!active) return rows;
-		return floatPinnedToTop(rows, (r) => pinnedModels.has(r.model.name), pinnedModels.size);
+		return floatPinnedToTop(rows, (r) => pinnedModels.has(rowId(r)), pinnedModels.size);
 	});
 
 	// Progressive row render — Firefox benefits a lot (cold first-paint
@@ -273,7 +280,9 @@
 		// already covers everything for any ordering of the same set.
 		const baseRows = summary.rows;
 		const total = baseRows.length;
-		const signature = `${total}|${baseRows[0]?.model.name ?? ''}|${baseRows[total - 1]?.model.name ?? ''}`;
+		const signature = `${total}|${baseRows[0] ? rowId(baseRows[0]) : ''}|${
+			baseRows[total - 1] ? rowId(baseRows[total - 1]) : ''
+		}`;
 		if (signature === lastRowSignature) return;
 		lastRowSignature = signature;
 		const myVersion = ++growVersion;
@@ -459,7 +468,7 @@
 		y: 0
 	});
 	type ModelTip = {
-		showFor: (t: HTMLElement, row: SummaryRow) => void;
+		showFor: (t: HTMLElement, row: SummaryRow, requiredModalities?: string[]) => void;
 		hide: () => void;
 	};
 	let modelTipPortal = $state<ModelTip | undefined>(undefined);
@@ -496,7 +505,7 @@
 
 	function showModelTip(e: PointerEvent | FocusEvent, row: SummaryRow) {
 		if (!isBoundaryCross(e)) return;
-		modelTipPortal?.showFor(e.currentTarget as HTMLElement, row);
+		modelTipPortal?.showFor(e.currentTarget as HTMLElement, row, benchmarkModalities);
 	}
 	function hideModelTip(e?: PointerEvent | FocusEvent) {
 		if (e && !isBoundaryCross(e)) return;
@@ -741,11 +750,12 @@
 				</tr>
 			</thead>
 			<tbody>
-				{#each renderedRows as row (row.model.name)}
-					<tr class:pinned={pinnedModels.has(row.model.name)}>
+				{#each renderedRows as row (rowId(row))}
+					{@const rid = rowId(row)}
+					<tr class:pinned={pinnedModels.has(rid)}>
 						<td class="sticky-left">
 							<div class="rank-cell">
-								<PinButton name={row.model.name} />
+								<PinButton name={rid} />
 								<span class="rank-pill">#{row.rank}</span>
 							</div>
 						</td>
@@ -758,7 +768,11 @@
 							onfocusin={(e) => showModelTip(e, row)}
 							onfocusout={hideModelTip}
 						>
-							<ModelCellName model={row.model} />
+							<ModelCellName
+								model={row.model}
+								experiments={row.experiments}
+								requiredModalities={benchmarkModalities}
+							/>
 						</th>
 						<td class="tbl-num param-cell" data-model-type={row.model.modelType}>
 							{fmtParamsValue(row.totalParamsB)}{#if fmtParamsUnit(row.totalParamsB)}<span

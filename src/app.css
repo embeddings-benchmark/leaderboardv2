@@ -319,6 +319,10 @@ code {
 	--category-tint: var(--tint-purple);
 	--category-tint-fg: var(--tint-purple-fg);
 }
+:where([data-type='hybrid']) {
+	--category-tint: var(--tint-teal);
+	--category-tint-fg: var(--tint-teal-fg);
+}
 
 /* `utilities` layer so this shell wins over `components` like `.badge`. */
 @layer utilities {

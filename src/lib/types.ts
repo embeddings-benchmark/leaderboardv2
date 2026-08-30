@@ -113,7 +113,13 @@ export function flattenMenu(entries: readonly MenuEntry[]): Benchmark[] {
 	return out;
 }
 
-export type ModelType = 'dense' | 'cross-encoder' | 'late-interaction' | 'sparse' | 'router';
+export type ModelType =
+	| 'dense'
+	| 'cross-encoder'
+	| 'late-interaction'
+	| 'sparse'
+	| 'router'
+	| 'hybrid';
 
 export interface ModelMeta {
 	name: string;
@@ -410,6 +416,12 @@ export interface AnySTSDescriptiveStatistics {
 	video2_statistics: VideoStatistics | null;
 	label_statistics: ScoreStatistics;
 }
+// Aggregate (top-level) shape: base fields plus an optional per-`hf_subset`
+// breakdown for multilingual datasets. Subset entries carry only the base
+// fields — no further nesting.
+export interface AnySTSStatistics extends AnySTSDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, AnySTSDescriptiveStatistics>;
+}
 
 export interface BitextDescriptiveStatistics {
 	num_samples: number;
@@ -417,6 +429,9 @@ export interface BitextDescriptiveStatistics {
 	unique_pairs: number;
 	sentence1_statistics: TextStatistics;
 	sentence2_statistics: TextStatistics;
+}
+export interface BitextStatistics extends BitextDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, BitextDescriptiveStatistics>;
 }
 
 export interface ClassificationDescriptiveStatistics {
@@ -428,6 +443,9 @@ export interface ClassificationDescriptiveStatistics {
 	video_statistics: VideoStatistics | null;
 	label_statistics: LabelStatistics;
 }
+export interface ClassificationStatistics extends ClassificationDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, ClassificationDescriptiveStatistics>;
+}
 
 export interface RegressionDescriptiveStatistics {
 	num_samples: number;
@@ -438,6 +456,9 @@ export interface RegressionDescriptiveStatistics {
 	video_statistics: VideoStatistics | null;
 	values_statistics: ScoreStatistics;
 }
+export interface RegressionStatistics extends RegressionDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, RegressionDescriptiveStatistics>;
+}
 
 export interface ClusteringDescriptiveStatistics {
 	num_samples: number;
@@ -447,6 +468,9 @@ export interface ClusteringDescriptiveStatistics {
 	video_statistics: VideoStatistics | null;
 	label_statistics: LabelStatistics;
 }
+export interface ClusteringStatistics extends ClusteringDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, ClusteringDescriptiveStatistics>;
+}
 
 export interface ClusteringFastDescriptiveStatistics {
 	num_samples: number;
@@ -455,6 +479,9 @@ export interface ClusteringFastDescriptiveStatistics {
 	audio_statistics: AudioStatistics | null;
 	video_statistics: VideoStatistics | null;
 	labels_statistics: LabelStatistics;
+}
+export interface ClusteringFastStatistics extends ClusteringFastDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, ClusteringFastDescriptiveStatistics>;
 }
 
 export interface PairClassificationDescriptiveStatistics {
@@ -471,6 +498,9 @@ export interface PairClassificationDescriptiveStatistics {
 	video2_statistics: VideoStatistics | null;
 	labels_statistics: LabelStatistics;
 }
+export interface PairClassificationStatistics extends PairClassificationDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, PairClassificationDescriptiveStatistics>;
+}
 
 export interface ZeroShotClassificationDescriptiveStatistics {
 	num_samples: number;
@@ -480,6 +510,9 @@ export interface ZeroShotClassificationDescriptiveStatistics {
 	video_statistics: VideoStatistics | null;
 	label_statistics: LabelStatistics;
 	candidates_labels_text_statistics: TextStatistics;
+}
+export interface ZeroShotClassificationStatistics extends ZeroShotClassificationDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, ZeroShotClassificationDescriptiveStatistics>;
 }
 
 export interface RetrievalDescriptiveStatistics {
@@ -498,6 +531,9 @@ export interface RetrievalDescriptiveStatistics {
 	relevant_docs_statistics: RelevantDocsStatistics;
 	top_ranked_statistics: TopRankedStatistics | null;
 }
+export interface RetrievalStatistics extends RetrievalDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, RetrievalDescriptiveStatistics>;
+}
 
 export interface SummarizationDescriptiveStatistics {
 	num_samples: number;
@@ -507,50 +543,49 @@ export interface SummarizationDescriptiveStatistics {
 	machine_summaries_statistics: TextStatistics;
 	score_statistics: ScoreStatistics;
 }
+export interface SummarizationStatistics extends SummarizationDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, SummarizationDescriptiveStatistics>;
+}
 
 export interface ImageTextPairClassificationDescriptiveStatistics {
 	num_samples: number;
 	text_statistics: TextStatistics;
 	image_statistics: ImageStatistics;
 }
-
-// Union of every per-split shape. Discriminating up-front (via
-// `TaskMeta.type`) is not enough — at least one task (`AJGT`) ships
-// fields the schema doesn't declare (`number_texts_intersect_with_train`),
-// and the renderer iterates known `*_statistics` keys structurally rather
-// than type-narrowing, so we widen here for the consumer.
-export type SplitDescriptiveStatistics =
-	| AnySTSDescriptiveStatistics
-	| BitextDescriptiveStatistics
-	| ClassificationDescriptiveStatistics
-	| RegressionDescriptiveStatistics
-	| ClusteringDescriptiveStatistics
-	| ClusteringFastDescriptiveStatistics
-	| PairClassificationDescriptiveStatistics
-	| ZeroShotClassificationDescriptiveStatistics
-	| RetrievalDescriptiveStatistics
-	| SummarizationDescriptiveStatistics
-	| ImageTextPairClassificationDescriptiveStatistics;
-
-// Multilingual datasets wrap each split's stats in a per-`hf_subset` map.
-// Distinguishable by the presence of `hf_subset_descriptive_stats`.
-export interface MultiSubsetDescriptiveStatistics {
-	num_samples: number;
-	hf_subset_descriptive_stats: Record<string, SplitDescriptiveStatistics>;
+export interface ImageTextPairClassificationStatistics extends ImageTextPairClassificationDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, ImageTextPairClassificationDescriptiveStatistics>;
 }
 
-// Top-level API shape: split name → stats (or multilingual wrapper).
-export type TaskDescriptiveStats = Record<
-	string,
-	SplitDescriptiveStatistics | MultiSubsetDescriptiveStatistics
->;
+// Union of every per-split shape returned at the top level of
+// `/tasks/{name}/descriptive_statistics`. Discriminating up-front (via
+// `TaskMeta.type`) is not enough — at least one task (`AJGT`) ships fields
+// the schema doesn't declare (`number_texts_intersect_with_train`), and the
+// renderer iterates known `*_statistics` keys structurally rather than
+// type-narrowing, so we widen here for the consumer.
+export type TaskSplitStatistics =
+	| AnySTSStatistics
+	| BitextStatistics
+	| ClassificationStatistics
+	| RegressionStatistics
+	| ClusteringStatistics
+	| ClusteringFastStatistics
+	| PairClassificationStatistics
+	| ZeroShotClassificationStatistics
+	| RetrievalStatistics
+	| SummarizationStatistics
+	| ImageTextPairClassificationStatistics;
+
+// Top-level API shape: split name → stats. Multilingual datasets carry an
+// additional `hf_subset_descriptive_stats` map alongside the same aggregate
+// fields — there's no separate wrapper shape.
+export type TaskDescriptiveStats = Record<string, TaskSplitStatistics>;
 
 export function hasSubsets(
-	s: SplitDescriptiveStatistics | MultiSubsetDescriptiveStatistics
-): s is MultiSubsetDescriptiveStatistics {
+	s: TaskSplitStatistics
+): s is TaskSplitStatistics & { hf_subset_descriptive_stats: Record<string, unknown> } {
 	return (
 		'hf_subset_descriptive_stats' in s &&
-		(s as MultiSubsetDescriptiveStatistics).hf_subset_descriptive_stats != null
+		(s as { hf_subset_descriptive_stats?: unknown }).hf_subset_descriptive_stats != null
 	);
 }
 

@@ -337,6 +337,9 @@
 [data-model-type='router'] {
 	--type-tint: var(--tint-purple-fg);
 }
+[data-model-type='hybrid'] {
+	--type-tint: var(--tint-teal-fg);
+}
 [data-model-type] .tbl-model-name {
 	color: var(--type-tint, inherit);
 }
@@ -485,18 +488,21 @@
 	color: var(--category-tint-fg, var(--text-muted));
 	border: 1px solid color-mix(in srgb, var(--category-tint-fg, var(--border)) 35%, transparent);
 }
-/* Inline ⚠️ icon for "model trained on this task" — used by PerTaskTab and
-   ModelScoreTable. Button reset so it renders as a pure typographic icon;
+/* Inline ⚠️ icon shell — "model trained on this task" (PerTaskTab,
+   ModelScoreTable) and "model can't encode a required modality"
+   (ModelCellName). Button reset so it renders as a pure typographic icon;
    the <button> tag exists so hover/focus tooltip handlers don't need a
    role/tabindex polyfill. */
-.trained-warn {
+.trained-warn,
+.modality-warn {
 	all: unset;
 	margin-left: 4px;
 	font-size: 11px;
 	line-height: 1;
 	cursor: help;
 }
-.trained-warn:focus-visible {
+.trained-warn:focus-visible,
+.modality-warn:focus-visible {
 	outline: 2px solid var(--primary);
 	outline-offset: 1px;
 	border-radius: 3px;

@@ -5,7 +5,14 @@
 	import { stickyHead } from '$lib/actions/sticky-head';
 	import { stickyHScroll } from '$lib/actions/sticky-hscroll';
 	import { resolve } from '$app/paths';
-	import { bestWorstPerColumn, floatPinnedToTop, heat, humanizeType, slug } from '$lib/format';
+	import {
+		bestWorstPerColumn,
+		floatPinnedToTop,
+		heat,
+		humanizeType,
+		rowId,
+		slug
+	} from '$lib/format';
 	import { createSortState } from '$lib/stores/sort.svelte';
 	import { safeIdle } from '$lib/idle';
 	import MarkdownText from './MarkdownText.svelte';
@@ -16,14 +23,14 @@
 	import InfoDot from './InfoDot.svelte';
 
 	type Tip = {
-		showFor: (t: HTMLElement, row: SummaryRow) => void;
+		showFor: (t: HTMLElement, row: SummaryRow, requiredModalities?: string[]) => void;
 		hide: () => void;
 	};
 	let tipPortal = $state<Tip | undefined>(undefined);
 
 	function onCellEnter(e: PointerEvent | FocusEvent, row: SummaryRow) {
 		if (!isBoundaryCross(e)) return;
-		tipPortal?.showFor(e.currentTarget as HTMLElement, row);
+		tipPortal?.showFor(e.currentTarget as HTMLElement, row, benchmarkModalities);
 	}
 	function onCellLeave(e?: PointerEvent | FocusEvent) {
 		if (e && !isBoundaryCross(e)) return;
@@ -37,8 +44,10 @@
 		// subscription so pin clicks elsewhere don't invalidate this
 		// derived.
 		active?: boolean;
+		// See `SummaryTable.svelte` — forwarded to `ModelCellName`.
+		benchmarkModalities?: string[];
 	}
-	let { summary, active = true }: Props = $props();
+	let { summary, active = true, benchmarkModalities = undefined }: Props = $props();
 
 	type SortKey = 'model' | `task:${string}`;
 	const sort = createSortState<SortKey>({
@@ -173,11 +182,12 @@
 	let worst = $derived(taskBests.worst);
 	// Per-row Set of trained-on task names — cell template would otherwise
 	// run `Array.includes` per cell (200×200 = up to 1.2M ops on a re-render).
+	// Keyed by `rowId` so experiment variants don't share the base's set.
 	let trainedByModel = $derived.by(() => {
 		// eslint-disable-next-line svelte/prefer-svelte-reactivity
 		const m = new Map<string, Set<string>>();
 		for (const r of summary.rows) {
-			m.set(r.model.name, new Set(r.trainedOnTasks ?? []));
+			m.set(rowId(r), new Set(r.trainedOnTasks ?? []));
 		}
 		return m;
 	});
@@ -203,7 +213,7 @@
 			});
 		}
 		if (!active) return rows;
-		return floatPinnedToTop(rows, (r) => pinnedModels.has(r.model.name), pinnedModels.size);
+		return floatPinnedToTop(rows, (r) => pinnedModels.has(rowId(r)), pinnedModels.size);
 	});
 
 	// Heaviest table on the page (~100k cells). Stream rows in idle
@@ -221,7 +231,9 @@
 
 	$effect(() => {
 		const total = sortedRows.length;
-		const signature = `${total}|${sortedRows[0]?.model.name ?? ''}|${sortedRows[total - 1]?.model.name ?? ''}`;
+		const signature = `${total}|${sortedRows[0] ? rowId(sortedRows[0]) : ''}|${
+			sortedRows[total - 1] ? rowId(sortedRows[total - 1]) : ''
+		}`;
 		if (signature === lastRowSignature) return;
 		lastRowSignature = signature;
 		const myVersion = ++growVersion;
@@ -307,11 +319,12 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each renderedRows as row (row.model.name)}
-						{@const rowTrained = trainedByModel.get(row.model.name)}
-						<tr class:pinned={pinnedModels.has(row.model.name)}>
+					{#each renderedRows as row (rowId(row))}
+						{@const rid = rowId(row)}
+						{@const rowTrained = trainedByModel.get(rid)}
+						<tr class:pinned={pinnedModels.has(rid)}>
 							<td class="tbl-pin-col tbl-sticky-pin">
-								<PinButton name={row.model.name} />
+								<PinButton name={rid} />
 							</td>
 							<th
 								scope="row"
@@ -322,7 +335,11 @@
 								onfocusin={(e) => onCellEnter(e, row)}
 								onfocusout={onCellLeave}
 							>
-								<ModelCellName model={row.model} />
+								<ModelCellName
+									model={row.model}
+									experiments={row.experiments}
+									requiredModalities={benchmarkModalities}
+								/>
 							</th>
 							{#each sortedTasks as task (task)}
 								{@const trained = rowTrained?.has(task) ?? false}

@@ -8,6 +8,8 @@
 		flatModel?: boolean;
 		/** Zero-shot is benchmark-scoped; /models hides it. */
 		hideZeroShot?: boolean;
+		/** Experiment variants only exist on benchmark rows; /models hides it. */
+		hideExperiments?: boolean;
 		/** Inline Language facet — only /models passes these. */
 		languageOptions?: string[];
 		languagesPicked?: Set<string>;
@@ -21,6 +23,7 @@
 		hideScope = false,
 		flatModel = false,
 		hideZeroShot = false,
+		hideExperiments = false,
 		languageOptions,
 		languagesPicked,
 		onToggleLanguage,
@@ -62,6 +65,7 @@
 				{hideScope}
 				{flatModel}
 				{hideZeroShot}
+				{hideExperiments}
 				{languageOptions}
 				{languagesPicked}
 				{onToggleLanguage}

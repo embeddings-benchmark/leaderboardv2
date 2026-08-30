@@ -22,7 +22,8 @@ export const MODEL_TYPES: ModelType[] = [
 	'cross-encoder',
 	'late-interaction',
 	'sparse',
-	'router'
+	'router',
+	'hybrid'
 ];
 
 export const MODEL_MODALITIES = ['text', 'image', 'audio', 'video'] as const;
@@ -42,6 +43,9 @@ interface FiltersState {
 	availability: Availability;
 	instructions: InstructionMode;
 	sentenceTransformersOnly: boolean;
+	// Drops rows for experiment/ablation variants (`SummaryRow.experiments`
+	// set) — keeps only each model's canonical base-run row.
+	excludeExperiments: boolean;
 	// Slider bounds; fall back to global defaults when no benchmark is loaded.
 	availableMinModelSizeM: number;
 	availableMaxModelSizeM: number;
@@ -57,6 +61,7 @@ function defaultState(): FiltersState {
 		availability: 'both',
 		instructions: 'both',
 		sentenceTransformersOnly: false,
+		excludeExperiments: false,
 		availableMinModelSizeM: SIZE_MIN_M,
 		availableMaxModelSizeM: SIZE_MAX_M
 	};
@@ -252,6 +257,7 @@ function createFilters() {
 		if (zs === 'allow_all' || zs === 'remove_unknown' || zs === 'only_zero_shot')
 			state.zeroShot = zs;
 		if (p.get('st') === '1') state.sentenceTransformersOnly = true;
+		if (p.get('noexp') === '1') state.excludeExperiments = true;
 		const openreq = p.get('openreq');
 		if (openreq !== null) {
 			opennessReqs.clear();
@@ -284,6 +290,7 @@ function createFilters() {
 				inst: state.instructions !== 'both' ? state.instructions : null,
 				zs: state.zeroShot !== 'allow_all' ? state.zeroShot : null,
 				st: state.sentenceTransformersOnly ? '1' : null,
+				noexp: state.excludeExperiments ? '1' : null,
 				// Canonical order (not insertion order) so the URL is stable.
 				openreq:
 					opennessReqs.size > 0
@@ -306,6 +313,7 @@ function createFilters() {
 		state.availability = 'both';
 		state.instructions = 'both';
 		state.sentenceTransformersOnly = false;
+		state.excludeExperiments = false;
 		opennessReqs.clear();
 		for (const f of modelFacets) f.reset();
 		sync();
@@ -381,6 +389,13 @@ function createFilters() {
 		},
 		set sentenceTransformersOnly(v: boolean) {
 			state.sentenceTransformersOnly = v;
+			sync();
+		},
+		get excludeExperiments() {
+			return state.excludeExperiments;
+		},
+		set excludeExperiments(v: boolean) {
+			state.excludeExperiments = v;
 			sync();
 		},
 		// Openness requirements (AND). Returns the live SvelteSet for identity-
@@ -602,6 +617,7 @@ export function applyFilters(summary: BenchmarkSummary): BenchmarkSummary {
 		filters.availability !== 'both' ||
 		filters.instructions !== 'both' ||
 		filters.sentenceTransformersOnly ||
+		filters.excludeExperiments ||
 		filters.opennessReqs.size > 0 ||
 		filters.modelTypes.size !== MODEL_TYPES.length ||
 		filters.modelModalities.size !== MODEL_MODALITIES.length ||
@@ -617,6 +633,8 @@ export function applyFilters(summary: BenchmarkSummary): BenchmarkSummary {
 		if (filters.instructions === 'only_non_instruction' && m.instructionTuned) return false;
 
 		if (filters.sentenceTransformersOnly && !m.sentenceTransformersCompatible) return false;
+
+		if (filters.excludeExperiments && row.experiments) return false;
 
 		if (filters.opennessReqs.size > 0 && !opennessMeets(m, filters.opennessReqs)) return false;
 
